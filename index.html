@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <link rel="stylesheet"
+        href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/default.min.css">
+    <link rel="stylesheet"
+        href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/a11y-light.min.css">
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        :root {
+            font-size: 12px;
+        }
+
+        html,
+        body {
+            height: 100%;
+            margin: 0;
+        }
+
+        #drop-area {
+            border: 2px dashed #ccc;
+            width: 300px;
+            height: 200px;
+            line-height: 200px;
+            text-align: center;
+            margin: 20px auto;
+            font-family: Arial, sans-serif;
+            color: #aaa;
+        }
+
+        .page {
+            display: flex;
+            /* background-color: #f0f0f0; */
+            height: 100%;
+        }
+
+        .left-pane {
+            flex: none;
+            aspect-ratio: 1536 / 2048;
+            position: relative;
+            user-select: none;
+
+            img,
+            canvas {
+                width: 100%;
+                height: 100%;
+                position: absolute;
+                top: 0;
+                left: 0;
+            }
+        }
+
+        .right-pane {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            border-left: 1px solid #ddd;
+        }
+
+        #overlay {
+            margin: 0;
+            border: 0;
+        }
+
+        #mouse-coordinates {
+            position: absolute;
+            bottom: 0;
+            right: 0;
+            color: #000;
+            font-size: 10px;
+            font-weight: bold;
+            background-color: rgba(255, 255, 255, 0.9);
+            padding: 4px 6px;
+        }
+
+        .json-text {
+            height: 200px;
+            border-radius: 4px;
+            border: 1px solid #ccc;
+            /* padding: 8px;
+            margin: -8px -12px;
+            width: calc(100% + 12px * 2); */
+            outline: none;
+            overflow-y: auto;
+            overflow-wrap: break-word;
+            white-space: pre-wrap;
+            line-break: anywhere;
+            /* max-width: 600px; */
+            width: 100%;
+            margin: 0;
+            margin-bottom: 8px;
+        }
+
+        .pane-header {
+            background: #f0f0f0;
+            border-top: 1px solid #ddd;
+            border-bottom: 1px solid #ddd;
+            padding: 4px 12px;
+            font-size: 1em;
+            margin: 0;
+        }
+
+        .pane-content {
+            padding: 8px 12px;
+        }
+
+        input.coord {
+            width: 70px;
+            font-size: 1em;
+        }
+
+        .input-label {
+            display: inline-block;
+            width: 72px;
+            padding-right: 16px;
+            text-align: right;
+        }
+
+        .keypoint-input {
+            font-size: 1em;
+            margin: 4px 0;
+
+            &.active {
+                background-color: #ddd;
+            }
+        }
+
+        .dragging {
+            opacity: 0.5
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .tooltip {
+            position: absolute;
+            background-color: #333333E0;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 4px;
+            top: 2em;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            border-radius: 4px;
+            z-index: 10;
+            opacity: 0;
+            animation: fadeInOut 5s forwards;
+            user-select: none;
+        }
+
+        /* @keyframesの定義 */
+        @keyframes fadeInOut {
+            0% {
+                opacity: 0;
+            }
+
+            10% {
+                opacity: 1;
+            }
+
+            90% {
+                opacity: 1;
+            }
+
+            100% {
+                opacity: 0;
+            }
+        }
+    </style>
+</head>
+
+<body x-data="app" @dragover.prevent="isDragging = true" @dragleave.prevent="isDragging = false"
+    @drop.prevent="isDragging = false" :class="{'dragging': isDragging}">
+    <div class="page" x-effect="updateOverlay">
+        <div class="left-pane" @mousemove="mouseMove" @mouseenter="mousePosition.isVisible = true"
+            @mouseleave="mousePosition.isVisible = false" @mousedown="mouseDown" @mouseup="mouseUp">
+            <img src="stage.png" width="1536" height="2048" :style="{opacity: 1.0};">
+            <img class="inputImage" x-ref="inputImage" src="stage.png" width="1536" height="2048"
+                :style="{opacity: settings.opacity};">
+            <canvas x-ref="overlay" width="1536" height="2048"
+                :style="{cursor: mousePosition.hoverPoint!=null ? 'pointer' : undefined};"></canvas>
+            <div id="mouse-coordinates" x-show="mousePosition.isVisible">
+                <span x-text="mousePosition.x"></span>, <span x-text="mousePosition.y"></span>
+            </div>
+
+        </div>
+        <!--  -->
+        <div class="right-pane">
+            <h2 class="pane-header">
+                アプリ設定
+            </h2>
+            <div class="pane-content">
+                <div>
+                    <button @click="saveFileData" :disabled="saved">保存</button>
+                </div>
+                <div>
+                    <input type="checkbox" x-model="settings.autoSave"> 自動保存
+                    <input type="checkbox" x-model="settings.isVisibleBoundingBox"> 境界ボックス
+                    <span class="input-label">透明度</span>
+                    <input type="range" min="0" max="1" step="0.01" x-model.number="settings.opacity"
+                        @wheel="wheelSlider"> <span x-text="settings.opacity"></span>
+                    <div>
+                        divisor <input class="coord" type="number" x-model.number="settings.divisor" />
+                    </div>
+                </div>
+            </div>
+            <h2 class="pane-header">ファイル設定</h2>
+            <div class="pane-content">
+                <div>
+                    境界ボックス
+                    <input class="coord" type="number" x-model.number="fileData.boundingBox[0]" :step="settings.divisor" />
+                    <input class="coord" type="number" x-model.number="fileData.boundingBox[1]" :step="settings.divisor" />
+                    <input class="coord" type="number" x-model.number="fileData.boundingBox[2]" :step="settings.divisor" />
+                    <input class="coord" type="number" x-model.number="fileData.boundingBox[3]" :step="settings.divisor" />
+                </div>
+                <div>
+                    <span class="input-label">offset X</span>
+                    <input type="range" min="-200" max="200" :step="settings.divisor" x-model.number="fileData.offsetX"
+                        @wheel="wheelSlider"> <span x-text="fileData.offsetX"></span>
+                </div>
+                <div>
+                    <span class="input-label">offset Y</span>
+                    <input type="range" min="-200" max="200" :step="settings.divisor" x-model.number="fileData.offsetY"
+                        @wheel="wheelSlider"> <span x-text="fileData.offsetY"></span>
+                </div>
+            </div>
+            <h2 class="pane-header">キーポイント</h2>
+            <div class="pane-content">
+                <template x-for="keyPoint in fileData.keyPoints">
+                    <div class="keypoint-input" :class="{'active': keyPoint == mousePosition.hoverPoint}">
+                        <span style="width: 40px; display: inline-block;padding-left: 8px;"
+                            x-text="keyPoint.name"></span>
+                        X: <input class="coord" type="number" x-model.number="keyPoint.x" :step="settings.divisor" />
+                        Y: <input class="coord" type="number" x-model.number="keyPoint.y" :step="settings.divisor" />
+                    </div>
+                </template>
+            </div>
+            <h2 class="pane-header">データ</h2>
+            <div class="pane-content">
+                <pre class="json-text theme-a11y-light" x-html="highlightJSON(getJSON(settings.wrapJSON))"
+                    @focus="onFocusJSON" contentEditable @beforeinput.prevent></pre>
+                <input type="checkbox" x-model="settings.wrapJSON"> 折り返し
+                <button @click="copyJSON">JSONをコピー</button>
+            </div>
+            <div>
+                <!-- <button @click="saveData(fileData)">保存</button> -->
+            </div>
+        </div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
+    <script>
+        const APP_ID = 'point-editor';
+
+        const config = {
+            width: 1536,
+            height: 2048,
+            defaultFileData: {
+                fileName: "",
+                id: "",
+                boundingBox: [328, 640, 880, 1280],
+                offsetX: 0,
+                offsetY: 0,
+                keyPoints: [
+                    { x: 408, y: 928, name: "LA" },
+                    { x: 712, y: 928, name: "LB" },
+                    { x: 560, y: 1728, name: "LC" },
+                    { x: 520, y: 1888, name: "LD" },
+                    { x: 464, y: 1728, name: "LE" },
+                    { x: 1128, y: 928, name: "RA" },
+                    { x: 824, y: 928, name: "RB" },
+                    { x: 976, y: 1728, name: "RC" },
+                    { x: 1016, y: 1888, name: "RD" },
+                    { x: 1072, y: 1728, name: "RE" },
+                ]
+            }
+        };
+
+        document.addEventListener('alpine:init', () => {
+            Alpine.data('app', () => ({
+                settings: {
+                    autoSave: true,
+                    opacity: 1.0,
+                    divisor: 8,
+                    isVisibleBoundingBox: true,
+                    wrapJSON: false,
+                },
+                saved: true,
+                isDragging: false,
+                mousePosition: {
+                    x: 0,
+                    y: 0,
+                    isVisible: false,
+                    hoverPoint: null,
+                    holdPoint: null,
+                },
+                fileData: {
+                    keyPoints: [],
+                },
+                defaultId: '6513e89b7fca7f8358fe91c2a303e5c48a40b8a5fac83cd0cbcce2305d569881',
+
+                get scale() {
+                    return this.$refs.overlay.offsetHeight / this.$refs.overlay.height;
+                },
+
+                init() {
+                    this.ctx = this.$refs.overlay.getContext('2d');
+
+                    const $dropArea = document.querySelector('body');
+                    const $img = document.querySelector('#input-imaage');
+
+                    // ドロップイベント
+                    $dropArea.addEventListener('drop', async (event) => {
+                        event.preventDefault();
+
+                        const files = event.dataTransfer.files;
+                        if (files.length != 1) return;
+
+                        if (!this.saved) {
+                            if (confirm('変更を保存しますか？')) {
+                                this.saveFileData();
+                            }
+                        }
+
+                        const file = files[0];
+                        if (file.type.startsWith('image/')) {
+                            const reader = new FileReader();
+                            reader.onload = (e) => {
+                                this.$refs.inputImage.src = e.target.result;
+                            }
+                            reader.readAsDataURL(file);
+                            // ファイルのハッシュをIDとして使用する
+                            const fileId = await getFileHash(file);
+                            this.loadFileData(fileId, file.name);
+                            this.updateOverlay();
+                        } else {
+                            showTooltip('画像ファイルをドロップしてください。');
+                        }
+                    });
+
+                    this.loadFileData(this.defaultId, 'default.png');
+
+                    window.addEventListener('resize', (event) => {
+                        this.updateOverlay();
+                    });
+
+                    this.updateOverlay();
+
+                    this.$watch("settings", (value) => {
+                        this.saveAppSettings();
+                    });
+                    this.loadAppSettings();
+
+                    // データの自動保存
+                    // デバウンス関数を使って連続で呼ばれるのを防ぐ
+                    const saveData = debounce(() => this.saveFileData(), 1000);
+                    this.$watch("fileData", (value) => {
+                        if (this.fileData.id == this.defaultId) {
+                            return;
+                        }
+                        this.saved = false;
+                        if (this.settings.autoSave) {
+                            saveData();
+                        }
+                    });
+
+                    // ページを離れる前に警告する
+                    window.addEventListener('beforeunload', (event) => {
+                        if (!this.saved) {
+                            event.preventDefault();
+                            event.returnValue = '';
+                        }
+                    })
+                },
+
+                mouseMove(event) {
+                    const mousePos = this.getMousePos(event);
+                    this.mousePosition.x = mousePos.x;
+                    this.mousePosition.y = mousePos.y;
+                    // 近くのキーポイントを探す
+                    this.mousePosition.hoverPoint = this.findPoint(mousePos.x, mousePos.y);
+                    if (this.mousePosition.holdPoint) {
+                        this.mousePosition.holdPoint.x = Math.floor(mousePos.x / this.settings.divisor) * this.settings.divisor;
+                        this.mousePosition.holdPoint.y = Math.floor(mousePos.y / this.settings.divisor) * this.settings.divisor;
+                        this.mousePosition.hoverPoint = this.mousePosition.holdPoint;
+                    }
+                    this.updateOverlay();
+                },
+
+                async mouseDown(event) {
+                    const mousePos = this.getMousePos(event);
+                    if (event.button === 0) { // 左クリックの場合
+                        this.mousePosition.holdPoint = this.findPoint(mousePos.x, mousePos.y);
+                        this.updateOverlay();
+                    }
+                    if (event.button === 1) { // ミドルクリックの場合
+                        const mousePosition = `${mousePos.x}, ${mousePos.y}`;
+
+                        // テキストをクリップボードにコピーする
+                        await navigator.clipboard.writeText(mousePosition);
+
+                        // ユーザに通知する
+                        showTooltip(`クリップボードにコピーしました: (${mousePosition})`);
+                    }
+                },
+
+                mouseUp(event) {
+                    if (event.button === 0) { // 左クリックの場合
+                        this.mousePosition.holdPoint = null;
+                        this.updateOverlay();
+                    }
+                },
+
+                getMousePos(event) {
+                    const rect = this.$refs.overlay.getBoundingClientRect();
+                    return {
+                        x: Math.floor((event.clientX - rect.left) / rect.width * config.width),
+                        y: Math.floor((event.clientY - rect.top) / rect.height * config.height),
+                    };
+                },
+
+                updateOverlay() {
+                    const bbox = this.fileData.boundingBox;
+                    const ctx = this.ctx;
+
+                    ctx.clearRect(0, 0, config.width, config.height);
+                    
+                    if (this.settings.isVisibleBoundingBox) {
+                        // 境界ボックス
+                        ctx.save();
+                        ctx.fillStyle = '#000000D0';
+                        ctx.fillRect(0, 0, config.width, config.height);
+                        ctx.globalCompositeOperation = 'destination-out';
+                        ctx.fillRect(
+                            bbox[0] + this.fileData.offsetX,
+                            bbox[1] + this.fileData.offsetY,
+                            bbox[2],
+                            bbox[3]);
+                        ctx.restore();
+
+                        // 中心線
+                        ctx.save();
+                        ctx.strokeStyle = '#FFFFFF70';
+                        ctx.lineWidth = Math.ceil(1 / this.scale);
+                        drawLine(ctx, [
+                            { x: bbox[0] + bbox[2] / 2 + this.fileData.offsetX, y: bbox[1] + this.fileData.offsetY },
+                            { x: bbox[0] + bbox[2] / 2 + this.fileData.offsetX, y: bbox[1] + bbox[3] + this.fileData.offsetY }
+                        ]);
+                        drawLine(ctx, [
+                            { x: bbox[0] + this.fileData.offsetX, y: bbox[1] + bbox[3] / 2 + this.fileData.offsetY },
+                            { x: bbox[0]+bbox[2] + this.fileData.offsetX, y: bbox[1] + bbox[3] / 2 + this.fileData.offsetY }
+                        ]);
+                        ctx.restore();
+                    }
+
+                    // 現在ホールドしている点に補助線を表示
+                    if (this.mousePosition.holdPoint) {
+                        ctx.save();
+                        ctx.lineWidth = Math.ceil(1 / this.scale);
+                        ctx.strokeStyle = '#ff0000A0';
+                        drawLine(ctx, [
+                            { x: this.mousePosition.holdPoint.x, y: 0 },
+                            { x: this.mousePosition.holdPoint.x, y: config.height }
+                        ]);
+                        ctx.strokeStyle = '#ff0000A0';
+                        drawLine(ctx, [
+                            { x: 0, y: this.mousePosition.holdPoint.y },
+                            { x: config.width, y: this.mousePosition.holdPoint.y }
+                        ]);
+                        ctx.restore();
+                    }
+
+                    // キーポイント間の関係を表示
+                    ctx.save();
+                    for (const side of ["L", "R"]) {
+                        a = this.findPointByName(`${side}A`);
+                        b = this.findPointByName(`${side}B`);
+                        c = this.findPointByName(`${side}C`);
+                        d = this.findPointByName(`${side}D`);
+                        e = this.findPointByName(`${side}E`);
+                        mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+                        ctx.lineWidth = Math.ceil(1 / this.scale);
+                        ctx.strokeStyle = '#0091EAFF';
+                        drawLine(ctx, [a, b]);
+                        drawLine(ctx, [mid, c, d]);
+                        drawLine(ctx, [c, e]);
+                    }
+                    ctx.restore();
+
+                    // キーポイントを表示
+                    ctx.save();
+                    for (keyPoint of this.fileData.keyPoints) {
+                        ctx.lineWidth = Math.ceil(2 / this.scale);
+                        // 円
+                        ctx.strokeStyle = '#FFFFFF';
+                        if (keyPoint == this.mousePosition.hoverPoint) {
+                            ctx.fillStyle = '#40C4FF';
+                        } else {
+                            ctx.fillStyle = '#0091EA';
+                        }
+                        drawCircle(ctx, keyPoint.x, keyPoint.y, Math.ceil(4 / this.scale));
+                        // テキスト
+                        if (keyPoint != this.mousePosition.holdPoint) {
+                            ctx.fillStyle = '#0091EA';
+                            const fontSize = Math.ceil(14 / this.scale);
+                            ctx.font = `bold ${fontSize}px Arial`;
+                            ctx.strokeText(keyPoint.name, keyPoint.x + 16, keyPoint.y - 16);
+                            ctx.fillText(keyPoint.name, keyPoint.x + 16, keyPoint.y - 16);
+                        }
+                    }
+                    ctx.restore();
+                },
+
+                findPoint(x, y) {
+                    for (keyPoint of this.fileData.keyPoints) {
+                        threadhold = 8 / this.scale;
+                        if ((keyPoint.x - x) ** 2 + (keyPoint.y - y) ** 2 < threadhold ** 2) {
+                            return keyPoint;
+                        }
+                    }
+                    return null;
+                },
+
+                findPointByName(name) {
+                    for (keyPoint of this.fileData.keyPoints) {
+                        if (keyPoint.name === name) {
+                            return keyPoint;
+                        }
+                    }
+                    return null;
+                },
+
+                getJSON(wrap=false) {
+                    let obj = Object.assign({}, this.fileData, { updateAt: new Date() });
+                    return JSON.stringify(this.fileData, null, wrap ? 2 : 0);  
+                },
+
+                loadFileData(id, fileName) {
+                    // デフォルトのデータ
+                    this.fileData = JSON.parse(JSON.stringify(config.defaultFileData));
+                    const record = localStorage[`${APP_ID}_record_${id}`];
+                    if (record) {
+                        // デフォルトのデータを上書き
+                        this.fileData = Object.assign(this.fileData, JSON.parse(record));
+                    } else {
+                        this.fileData.createAt = new Date();
+                    }
+                    this.fileData.id = id;
+                    this.fileData.fileName = fileName;
+                    this.saved = true;
+                },
+
+                saveFileData() {
+                    this.saved = true;
+                    if (this.fileData.id == this.defaultId) {
+                        return;
+                    }
+                    localStorage[`${APP_ID}_record_${this.fileData.id}`] = this.getJSON();
+                    console.log("saveed");
+                },
+
+                loadAppSettings() {
+                    const settings = localStorage[`${APP_ID}_settings`];
+                    if (settings) {
+                        this.settings = Object.assign(this.settings, JSON.parse(settings));
+                        this.settings.opacity = Math.max(0.2, this.settings.opacity);
+                    }
+                },
+
+                saveAppSettings() {
+                    localStorage[`${APP_ID}_settings`] = JSON.stringify(this.settings);
+                },
+
+                wheelSlider(event) {
+                    event.preventDefault();
+                    min = event.target.min != "" ? parseFloat(event.target.min) : 0;
+                    max = event.target.max != "" ? parseFloat(event.target.max) : 100;
+                    step = event.target.step != "" ? parseFloat(event.target.step) : 1;
+                    if (event.deltaY > 0) {
+                        event.target.value = Math.max(min, parseFloat(event.target.value) - step);
+                    } else {
+                        event.target.value = Math.min(max, parseFloat(event.target.value) + step);
+                    }
+                    // inputイベントを手動で発火させてスライダーの値が変更されたことを通知する
+                    event.target.dispatchEvent(new Event('input'));
+                },
+
+                async copyJSON() {
+                    // テキストをクリップボードにコピーする
+                    await navigator.clipboard.writeText(JSON.stringify(this.fileData));
+
+                    // ユーザに通知する
+                    showTooltip('クリップボードにコピーしました');
+                },
+
+                onFocusJSON(event) {
+                    // JSONテキストエリアをクリックしたとき、テキストを選択する
+                    const range = document.createRange();
+                    const selection = window.getSelection();
+                    range.selectNodeContents(this.$el);
+                    selection.removeAllRanges();
+                    selection.addRange(range);
+                }
+            }));
+        });
+
+        async function getFileHash(file) {
+            // SHA256ハッシュを計算
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = async (event) => {
+                    const arrayBuffer = event.target.result;
+                    const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer);
+                    const hashArray = Array.from(new Uint8Array(hashBuffer));
+                    const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+                    resolve(hashHex);
+                };
+                reader.onerror = () => {
+                    reject('Error reading file');
+                };
+                reader.readAsArrayBuffer(file);
+            });
+        }
+
+        function showTooltip(text) {
+            const tooltip = document.createElement('div');
+            tooltip.classList.add('tooltip');
+            tooltip.textContent = text;
+            document.body.append(tooltip);
+            setTimeout(() => {
+                tooltip.remove();
+            }, 5000 + 1000);
+        }
+
+        function drawLine(ctx, points) {
+            if (points.length < 2) return; // 点が2つ未満の場合、線を描けない
+
+            ctx.beginPath();
+            ctx.moveTo(points[0].x, points[0].y); // 最初の点に移動
+
+            for (let i = 1; i < points.length; i++) {
+                ctx.lineTo(points[i].x, points[i].y); // 各点に対して線を引く
+            }
+
+            ctx.stroke(); // 線を描く
+        }
+
+        function drawCircle(ctx, x, y, radius) {
+            ctx.beginPath(); // 新しいパスを開始
+            ctx.arc(x, y, radius, 0, 2 * Math.PI); // 円を描く
+            ctx.stroke(); // 線で描画
+            ctx.fill();
+        }
+
+        // デバウンス関数
+        function debounce(func, delay) {
+            let timeout;
+            return function () {
+                const context = this;
+                const args = arguments;
+                clearTimeout(timeout);
+                timeout = setTimeout(() => func.apply(context, args), delay);
+            };
+        }
+
+        function highlightJSON(json) {
+            return hljs.highlight(json, { language: 'json' }).value;
+        }
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.0/dist/cdn.min.js"></script>
+</body>
+
+</html>
